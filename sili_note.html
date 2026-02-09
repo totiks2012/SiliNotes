@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SiliNotes | Full Control 6.0</title>
+    <style>
+        :root {
+            --bg-main: #f4ecd8; --bg-sidebar: #e8dfc4; --fg-color: #3e2723;
+            --accent: #8d6e63; --border: #d7ccc8; --item-hover: #d7ccc8;
+            --text-editor: #2b1b17; --font-ui: "Georgia", serif; --font-editor: "Courier New", monospace;
+            --save-glow: #4caf50; --dirty-glow: #ff9800; --error-glow: #d32f2f;
+        }
+        [data-theme="dark"] {
+            --bg-main: #1b1411; --bg-sidebar: #261c18; --fg-color: #d7ccc8;
+            --accent: #5d4037; --border: #3e2723; --item-hover: #3e2723; --text-editor: #e0d5c1;
+        }
+        body {
+            font-family: var(--font-ui); background: var(--bg-main); color: var(--fg-color);
+            margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+        }
+        #toolbar {
+            display: flex; align-items: center; gap: 10px; padding: 12px 20px;
+            background: var(--bg-sidebar); border-bottom: 2px solid var(--border);
+            flex-shrink: 0;
+        }
+        #main { display: flex; flex: 1; overflow: hidden; position: relative; }
+        
+        #sidebar {
+            width: 320px; min-width: 150px; max-width: 50vw;
+            border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--bg-sidebar);
+            flex-shrink: 0;
+        }
+        
+        #sidebar-resizer {
+            width: 6px; cursor: col-resize; background: var(--border); z-index: 100;
+            transition: background 0.2s; flex-shrink: 0;
+        }
+        #sidebar-resizer:hover, #sidebar-resizer.resizing { background: var(--accent); }
+
+        #search-container { padding: 15px; }
+        #search-bar {
+            width: 100%; padding: 10px; border-radius: 4px; border: 2px solid var(--border);
+            background: var(--bg-main); color: var(--fg-color); font-size: 11pt; outline: none;
+            box-sizing: border-box;
+        }
+        #note-list { flex: 1; overflow-y: auto; list-style: none; margin: 0; padding: 0; }
+        
+        /* КАРТОЧКА: Flow Expansion Logic */
+        .note-card { 
+            padding: 15px 20px; border-bottom: 1px solid var(--border); 
+            cursor: pointer; transition: background 0.1s; 
+        }
+        .note-card:hover { background: var(--item-hover); }
+        .note-card.active { border-left: 6px solid var(--accent); background: var(--item-hover); }
+        
+        .card-title {
+            font-weight: bold; display: block; font-size: 13pt; width: 100%;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .note-card:hover .card-title { white-space: normal; overflow: visible; word-wrap: break-word; }
+
+        #editor { flex: 1; display: flex; flex-direction: column; background: var(--bg-main); min-width: 0; }
+        #title-input {
+            padding: 25px 40px 5px; font-size: 2rem; border: none; outline: none;
+            background: transparent; color: var(--fg-color); font-family: var(--font-ui); font-weight: bold;
+            width: 100%; box-sizing: border-box;
+        }
+        #content-input {
+            flex: 1; padding: 10px 40px 40px; border: none; outline: none;
+            background: transparent; color: var(--text-editor); font-family: var(--font-editor);
+            font-size: 15pt; line-height: 1.7; resize: none;
+            width: 100%; box-sizing: border-box;
+        }
+        
+        .btn {
+            padding: 8px 15px; border-radius: 4px; border: 2px solid var(--accent);
+            cursor: pointer; background: var(--bg-sidebar); color: var(--fg-color); font-weight: bold; transition: 0.2s;
+            white-space: nowrap;
+        }
+        .btn:hover { background: var(--accent); color: white; }
+        
+        /* Стили для инпутов шрифта */
+        .toolbar-input {
+            padding: 8px; border-radius: 4px; border: 2px solid var(--accent);
+            background: var(--bg-main); color: var(--fg-color); outline: none; font-weight: bold;
+        }
+        
+        .btn-save-manual { background: var(--accent); color: white; border: 2px solid var(--fg-color); }
+        .btn-save-manual.dirty { background: var(--dirty-glow); border-color: #e65100; animation: pulse 2s infinite; }
+        .btn-save-manual.error { background: var(--error-glow); border-color: #b71c1c; animation: shake 0.5s; }
+
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0px rgba(255, 152, 0, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(255, 152, 0, 0); } 100% { box-shadow: 0 0 0 0px rgba(255, 152, 0, 0); } }
+        @keyframes shake { 0% { transform: translateX(0); } 25% { transform: translateX(-5px); } 50% { transform: translateX(5px); } 75% { transform: translateX(-5px); } 100% { transform: translateX(0); } }
+
+        .status-block {
+            flex: 1; display: flex; flex-direction: column; align-items: flex-end; margin-right: 15px;
+        }
+        .status-msg { font-size: 10pt; font-style: italic; opacity: 0.7; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        .storage-meter { font-size: 8pt; opacity: 0.5; margin-top: 2px; }
+    </style>
+</head>
+<body data-theme="light">
+    <div id="toolbar">
+        <button class="btn" onclick="actions.create()">📝 Новая</button>
+        <button id="save-btn" class="btn btn-save-manual" onclick="actions.forceSave()">💾 (Ctrl+S)</button>
+        <button class="btn" onclick="actions.delete()">🗑</button>
+        
+        <div class="status-block">
+            <div class="status-msg" id="save-status">Система стабильна.</div>
+            <div class="storage-meter" id="storage-meter">Память: 0%</div>
+        </div>
+        
+        <select id="font-select" class="toolbar-input" title="Шрифт" style="max-width: 120px;"></select>
+        <input type="number" id="font-size-input" class="toolbar-input" title="Размер (pt)" value="15" min="8" max="72" style="width: 50px;">
+
+        <button class="btn" onclick="ui.toggleTheme()">🌓</button>
+        <button class="btn" onclick="document.getElementById('file-import').click()">📥 Импорт</button>
+        <input type="file" id="file-import" style="display:none" onchange="actions.handleFile(event)">
+        <button class="btn" onclick="actions.export()">📤 Экспорт</button>
+    </div>
+    <div id="main">
+        <aside id="sidebar">
+            <div id="search-container"><input type="text" id="search-bar" placeholder="Поиск..." oninput="ui.render()"></div>
+            <ul id="note-list"></ul>
+        </aside>
+        <div id="sidebar-resizer"></div>
+        <main id="editor">
+            <input type="text" id="title-input" placeholder="Заголовок..." oninput="actions.markDirty(); actions.syncUI()">
+            <textarea id="content-input" placeholder="Начните писать..." oninput="actions.markDirty()"></textarea>
+        </main>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'sv_writer_pro_v5';
+        let state = {
+            notes: [], 
+            currentId: null,
+            isDirty: false
+        };
+
+        const fontSettings = {
+            fonts: [
+                { name: 'Georgia', value: 'Georgia, serif' },
+                { name: 'Arial', value: 'Arial, sans-serif' },
+                { name: 'Courier', value: '"Courier New", monospace' },
+                { name: 'Verdana', value: 'Verdana, sans-serif' }
+            ]
+        };
+
+        const ui = {
+            render() {
+                const query = document.getElementById('search-bar').value.toLowerCase();
+                const list = document.getElementById('note-list');
+                list.innerHTML = '';
+                state.notes
+                    .filter(n => (n.title || '').toLowerCase().includes(query) || (n.content || '').toLowerCase().includes(query))
+                    .sort((a, b) => b.mtime - a.mtime)
+                    .forEach(note => {
+                        const li = document.createElement('li');
+                        li.className = `note-card ${state.currentId === note.id ? 'active' : ''}`;
+                        li.innerHTML = `<span class="card-title">${note.title || 'Черновик'}</span>`;
+                        li.onclick = () => actions.load(note.id);
+                        list.appendChild(li);
+                    });
+                this.updateStorageMeter();
+            },
+            toggleTheme() {
+                const newTheme = document.body.dataset.theme === 'dark' ? 'light' : 'dark';
+                document.body.dataset.theme = newTheme;
+                localStorage.setItem('sili_note_theme', newTheme);
+            },
+            updateStatus(isDirty, errorMsg = null) {
+                const btn = document.getElementById('save-btn');
+                const status = document.getElementById('save-status');
+                
+                btn.classList.remove('dirty', 'error');
+                
+                if (errorMsg) {
+                    btn.classList.add('error');
+                    status.textContent = `ОШИБКА: ${errorMsg}`;
+                    status.style.color = '#d32f2f';
+                } else if (isDirty) {
+                    btn.classList.add('dirty');
+                    status.textContent = 'Есть правки!';
+                    status.style.color = 'inherit';
+                } else {
+                    status.textContent = 'Сохранено.';
+                    status.style.color = 'inherit';
+                }
+            },
+            updateStorageMeter() {
+                const json = JSON.stringify(state.notes);
+                const bytes = new Blob([json]).size;
+                const kb = (bytes / 1024).toFixed(2);
+                const limit = 5120; 
+                const percent = Math.min((bytes / (limit * 1024)) * 100, 100).toFixed(1);
+                
+                const meter = document.getElementById('storage-meter');
+                meter.textContent = `Вес базы: ${kb} KB (~${percent}%)`;
+                if (percent > 90) meter.style.color = 'red';
+                else meter.style.color = 'inherit';
+            }
+        };
+
+        const actions = {
+            init() {
+                try {
+                    const raw = localStorage.getItem(STORAGE_KEY);
+                    state.notes = raw ? JSON.parse(raw) : [];
+                } catch (e) {
+                    console.error("Critical Load Error", e);
+                    alert("Ошибка чтения базы данных! Данные могут быть повреждены.");
+                    state.notes = [];
+                }
+            },
+            markDirty() { if (!state.isDirty) { state.isDirty = true; ui.updateStatus(true); } },
+            create() {
+                if (state.isDirty && !confirm('Сохранить текущую заметку?')) return;
+                const id = Date.now();
+                state.notes.push({ id, title: '', content: '', mtime: id });
+                state.currentId = id;
+                if (this.tryPersist()) {
+                     state.isDirty = false;
+                     this.load(id);
+                }
+            },
+            load(id) {
+                if (state.isDirty && !confirm('Сменить заметку без сохранения?')) return;
+                state.currentId = id;
+                const n = state.notes.find(i => i.id === id);
+                document.getElementById('title-input').value = n.title || '';
+                document.getElementById('content-input').value = n.content || '';
+                state.isDirty = false;
+                ui.updateStatus(false);
+                ui.render();
+            },
+            syncUI() {
+                const title = document.getElementById('title-input').value;
+                const activeTitle = document.querySelector(`.note-card.active .card-title`);
+                if (activeTitle) activeTitle.innerText = title || 'Черновик';
+            },
+            forceSave() {
+                if (!state.currentId) return;
+                const n = state.notes.find(i => i.id === state.currentId);
+                if (n) {
+                    n.title = document.getElementById('title-input').value;
+                    n.content = document.getElementById('content-input').value;
+                    n.mtime = Date.now();
+                    if (this.tryPersist()) {
+                        state.isDirty = false;
+                        ui.updateStatus(false);
+                        ui.render();
+                    }
+                }
+            },
+            tryPersist() {
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.notes));
+                    return true;
+                } catch (e) {
+                    if (e.name === 'QuotaExceededError') {
+                        ui.updateStatus(true, 'МЕСТО ЗАКОНЧИЛОСЬ!');
+                        alert("LocalStorage переполнен! Удалите старые заметки.");
+                    } else {
+                        ui.updateStatus(true, 'СБОЙ ЗАПИСИ');
+                        alert(`Ошибка: ${e.message}`);
+                    }
+                    return false;
+                }
+            },
+            handleFile(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => this.parseImport(e.target.result);
+                reader.readAsText(file);
+            },
+            parseImport(rawText) {
+                let importedNotes = [];
+                try {
+                    const data = JSON.parse(rawText);
+                    importedNotes = Array.isArray(data) ? data : [data];
+                } catch (e) {
+                    const chunks = rawText.split('---NOTE---').filter(c => c.trim().length > 0);
+                    importedNotes = chunks.map(chunk => {
+                        const lines = chunk.trim().split('\n');
+                        const title = lines[0].replace(/^-+/, '').replace(/-+$/, '').trim();
+                        const content = lines.slice(1).join('\n').trim();
+                        return { id: Date.now() + Math.random(), title, content, mtime: Date.now() };
+                    });
+                }
+                if (importedNotes.length > 0) {
+                    if (confirm(`Импортировать ${importedNotes.length} заметок?`)) {
+                        state.notes = [...state.notes, ...importedNotes];
+                        state.notes = Array.from(new Map(state.notes.map(n => [n.title + n.content, n])).values());
+                        this.tryPersist();
+                        ui.render();
+                    }
+                } else { alert("Формат не распознан."); }
+            },
+            export() {
+                const data = JSON.stringify(state.notes, null, 2);
+                const blob = new Blob([data], { type: 'application/json' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `sili-backup-${new Date().toISOString().slice(0,10)}.json`;
+                a.click();
+            },
+            delete() {
+                if (!state.currentId || !confirm('Удалить?')) return;
+                state.notes = state.notes.filter(n => n.id !== state.currentId);
+                this.tryPersist();
+                state.currentId = null;
+                document.getElementById('title-input').value = '';
+                document.getElementById('content-input').value = '';
+                ui.render();
+            },
+            // Гилфойл: Обновленный метод применения шрифта и размера
+            applyFont() {
+                const fontSelect = document.getElementById('font-select');
+                const fontSizeInput = document.getElementById('font-size-input');
+                const editor = document.getElementById('content-input');
+                
+                editor.style.fontFamily = fontSelect.value;
+                editor.style.fontSize = `${fontSizeInput.value}pt`;
+                
+                // Сохраняем настройки
+                localStorage.setItem('sili_note_font', fontSelect.value);
+                localStorage.setItem('sili_note_font_size', fontSizeInput.value);
+            }
+        };
+
+        const resizer = document.getElementById('sidebar-resizer');
+        const sidebar = document.getElementById('sidebar');
+        let isResizing = false;
+
+        resizer.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            resizer.classList.add('resizing');
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            const newWidth = e.clientX;
+            if (newWidth > 150 && newWidth < 600) sidebar.style.width = `${newWidth}px`;
+        });
+        document.addEventListener('mouseup', () => {
+            if (isResizing) {
+                isResizing = false;
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                resizer.classList.remove('resizing');
+            }
+        });
+
+        window.onbeforeunload = (e) => { if (state.isDirty) { e.preventDefault(); return ""; } };
+        window.addEventListener('keydown', e => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); actions.forceSave(); }
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.body.dataset.theme = localStorage.getItem('sili_note_theme') || 'light';
+            actions.init();
+            
+            const fSelect = document.getElementById('font-select');
+            const fSize = document.getElementById('font-size-input'); // Восстановленный ID
+            
+            fontSettings.fonts.forEach(f => {
+                const opt = document.createElement('option');
+                opt.value = f.value; opt.textContent = f.name;
+                fSelect.appendChild(opt);
+            });
+            
+            // Загружаем сохраненные настройки
+            fSelect.value = localStorage.getItem('sili_note_font') || fontSettings.fonts[0].value;
+            fSize.value = localStorage.getItem('sili_note_font_size') || '15';
+            
+            // Вешаем слушатели
+            fSelect.addEventListener('change', actions.applyFont);
+            fSize.addEventListener('input', actions.applyFont); // Реагируем сразу при вводе
+            
+            actions.applyFont();
+            ui.render();
+        });
+    </script>
+</body>
+</html>
